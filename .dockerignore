@@ -1,0 +1,6 @@
+.env
+partidas.db
+.git
+__pycache__
+.pytest_cache
+test_database.py
