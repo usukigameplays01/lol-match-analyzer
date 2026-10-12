@@ -1,37 +1,25 @@
+"""Descarga las partidas de un jugador desde la API de Riot y las guarda en la base de datos."""
 import os
-import sqlite3
 import time
 from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
 
+from database import (
+    campeones_de_cola,
+    init_db,
+    match_exists,
+    resumen_por_cola,
+    save_match,
+)
+
 load_dotenv()
 API_KEY = os.getenv("RIOT_API_KEY")
 BASE_URL = "https://americas.api.riotgames.com"
-DB_PATH = "partidas.db"
-MIN_DURACION = 5  # minutos; las partidas más cortas (remakes) no cuentan en las estadísticas
-
-# Nombres legibles para las colas (queueId) más comunes. Las demás salen como "Cola <id>".
-COLAS = {
-    400: "Normal (draft)",
-    420: "Clasificatoria solo/duo",
-    430: "Normal (ciega)",
-    440: "Clasificatoria flex",
-    450: "ARAM",
-    480: "Swiftplay",
-    490: "Normal (quickplay)",
-    700: "Clash",
-    1700: "Arena",
-    1900: "URF",
-}
 
 if not API_KEY:
     raise SystemExit("No se encontró RIOT_API_KEY. Revisa el archivo .env")
-
-
-def nombre_cola(queue_id):
-    return COLAS.get(queue_id, f"Cola {queue_id}")
 
 
 # ---------- API de Riot ----------
@@ -78,81 +66,6 @@ def summarize_match(match, puuid):
     return None
 
 
-# ---------- Base de datos ----------
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS partidas (
-            match_id TEXT PRIMARY KEY,
-            campeon TEXT,
-            kills INTEGER,
-            deaths INTEGER,
-            assists INTEGER,
-            win INTEGER,
-            duracion_min REAL,
-            modo TEXT,
-            queue_id INTEGER,
-            fecha TEXT
-        )
-        """
-    )
-    return conn
-
-
-def match_exists(conn, match_id):
-    row = conn.execute("SELECT 1 FROM partidas WHERE match_id = ?", (match_id,)).fetchone()
-    return row is not None
-
-
-def save_match(conn, match_id, r):
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO partidas
-            (match_id, campeon, kills, deaths, assists, win, duracion_min, modo, queue_id, fecha)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (match_id, r["campeon"], r["kills"], r["deaths"], r["assists"],
-         r["win"], r["duracion_min"], r["modo"], r["queue_id"], r["fecha"]),
-    )
-    conn.commit()
-
-
-def resumen_por_cola(conn):
-    """Una fila por tipo de partida: total, victorias, winrate y KDA promedio."""
-    return conn.execute(
-        """
-        SELECT queue_id,
-               COUNT(*),
-               SUM(win),
-               ROUND(100.0 * SUM(win) / COUNT(*), 1),
-               ROUND(AVG(kills), 1), ROUND(AVG(deaths), 1), ROUND(AVG(assists), 1)
-        FROM partidas
-        WHERE duracion_min >= ?
-        GROUP BY queue_id
-        ORDER BY COUNT(*) DESC
-        """,
-        (MIN_DURACION,),
-    ).fetchall()
-
-
-def campeones_de_cola(conn, queue_id):
-    return conn.execute(
-        """
-        SELECT campeon,
-               COUNT(*),
-               SUM(win),
-               ROUND(100.0 * SUM(win) / COUNT(*), 1),
-               ROUND(AVG(kills), 1), ROUND(AVG(deaths), 1), ROUND(AVG(assists), 1)
-        FROM partidas
-        WHERE queue_id = ? AND duracion_min >= ?
-        GROUP BY campeon
-        ORDER BY COUNT(*) DESC, 4 DESC
-        """,
-        (queue_id, MIN_DURACION),
-    ).fetchall()
-
-
 # ---------- Programa principal ----------
 if __name__ == "__main__":
     nombre = input("Nombre (lo que va antes del #): ").strip()
@@ -175,10 +88,15 @@ if __name__ == "__main__":
     total = conn.execute("SELECT COUNT(*) FROM partidas").fetchone()[0]
     print(f"\nPartidas nuevas guardadas: {nuevas} | Total en la base: {total}")
 
-    for queue_id, n, v, wr, k, d, a in resumen_por_cola(conn):
-        print(f"\n=== {nombre_cola(queue_id)} ===")
-        print(f"{n} partidas | {v} victorias | winrate {wr}% | KDA promedio {k}/{d}/{a}\n")
+    for cola in resumen_por_cola(conn):
+        print(f"\n=== {cola['cola']} ===")
+        print(
+            f"{cola['partidas']} partidas | {cola['victorias']} victorias | "
+            f"winrate {cola['winrate']}% | KDA promedio "
+            f"{cola['kills_prom']}/{cola['muertes_prom']}/{cola['asistencias_prom']}\n"
+        )
         print(f'{"Campeón":<14}{"Partidas":<10}{"Victorias":<11}{"Winrate":<9}KDA promedio')
-        for camp, cn, cv, cwr, ck, cd, ca in campeones_de_cola(conn, queue_id):
-            print(f"{camp:<14}{cn:<10}{cv:<11}{cwr:<9}{ck}/{cd}/{ca}")
+        for c in campeones_de_cola(conn, cola["queue_id"]):
+            kda = f"{c['kills_prom']}/{c['muertes_prom']}/{c['asistencias_prom']}"
+            print(f"{c['campeon']:<14}{c['partidas']:<10}{c['victorias']:<11}{c['winrate']:<9}{kda}")
     conn.close()
