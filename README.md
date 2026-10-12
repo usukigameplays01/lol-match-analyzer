@@ -1,14 +1,14 @@
 # lol-match-analyzer
 
-Analizador de partidas de League of Legends que usa la API oficial de Riot Games. Consulta el historial de un jugador, guarda las partidas en una base de datos local y calcula estadísticas como el winrate y el KDA promedio por campeón.
+Analizador de partidas de League of Legends que usa la API oficial de Riot Games. Descarga el historial de un jugador, lo guarda en una base de datos local y expone estadísticas (winrate y KDA por tipo de partida y por campeón) mediante una API propia hecha con FastAPI.
 
 ## Qué hace
 
-- Busca una cuenta por Riot ID (`Nombre#Tag`) y obtiene su `puuid`.
-- Descarga las últimas partidas con la API MATCH-V5.
-- Guarda cada partida en una base de datos SQLite, sin duplicar las que ya existen.
-- Excluye de las estadísticas las partidas muy cortas (remakes, menos de 5 minutos).
-- Muestra una tabla con partidas, victorias, winrate y KDA promedio por campeón.
+- Busca una cuenta por Riot ID (`Nombre#Tag`) y obtiene su `puuid` (ACCOUNT-V1).
+- Descarga las últimas partidas (MATCH-V5) y las guarda en SQLite, sin duplicar las que ya existen.
+- Separa las estadísticas por tipo de partida (clasificatoria, ARAM, normales...) para que no se mezclen.
+- Excluye de las estadísticas las partidas de menos de 5 minutos (remakes).
+- Expone los resultados en JSON mediante una API REST con documentación automática.
 
 ## Requisitos
 
@@ -21,10 +21,10 @@ Analizador de partidas de League of Legends que usa la API oficial de Riot Games
 ```bash
 git clone https://github.com/usukigameplays01/lol-match-analyzer.git
 cd lol-match-analyzer
-pip install requests python-dotenv
+pip install -r requirements.txt
 ```
 
-En Windows, si el comando `python` no funciona, usa `py` en su lugar (por ejemplo `py -m pip install requests python-dotenv`).
+En Windows, si el comando `python` no funciona, usa `py` (por ejemplo `py -m pip install -r requirements.txt`).
 
 ## Configuración
 
@@ -34,65 +34,92 @@ Crea un archivo `.env` en la raíz del proyecto con tu clave de la API:
 RIOT_API_KEY=RGAPI-tu-clave-aqui
 ```
 
-Notas importantes:
-
 - Sin comillas y sin espacios alrededor del `=`.
 - Las claves de desarrollo **expiran cada 24 horas**: hay que regenerarla en el portal de desarrolladores y actualizar esa línea.
-- El archivo `.env` está en el `.gitignore` y nunca debe subirse al repositorio.
+- `.env` está en el `.gitignore` y nunca debe subirse al repositorio.
 
 ## Uso
+
+### 1. Descargar y guardar partidas
 
 ```bash
 python main.py
 ```
 
-El programa te pide tu Riot ID en dos partes. Si tu Riot ID es `Usuki#L01`:
-
-```
-Nombre (lo que va antes del #): Usuki
-Tag (lo que va después del #): L01
-```
-
-Ejemplo de salida:
+Pide tu Riot ID en dos partes (si es `Usuki#L01`, el nombre es `Usuki` y el tag `L01`), guarda las partidas nuevas en `partidas.db` e imprime las estadísticas:
 
 ```
 Partidas nuevas guardadas: 20 | Total en la base: 20
 
+=== Clasificatoria solo/duo ===
+17 partidas | 7 victorias | winrate 41.2% | KDA promedio 6.2/6.2/8.6
+
 Campeón       Partidas  Victorias  Winrate  KDA promedio
 Yunara        3         2          66.7     4.7/6.3/6.7
-Zeri          3         2          66.7     10.7/5.3/12.0
 ...
 ```
 
-Si lo ejecutas de nuevo, solo descarga las partidas nuevas, así que es mucho más rápido y gasta menos peticiones.
+Si lo ejecutas de nuevo, solo descarga las partidas nuevas.
 
-## Cómo funciona
+### 2. Levantar la API
 
-1. `ACCOUNT-V1` convierte el Riot ID en un `puuid`.
-2. `MATCH-V5` devuelve los IDs de las últimas partidas y el detalle de cada una.
-3. Se extraen los datos del jugador (campeón, kills, muertes, asistencias, resultado, duración, modo y fecha).
-4. Todo se guarda en `partidas.db` (SQLite) y las estadísticas se calculan con consultas SQL.
+```bash
+python -m uvicorn api:app --reload
+```
 
-El programa hace una pausa entre peticiones para respetar los límites de la clave de desarrollo (20 solicitudes por segundo y 100 cada 2 minutos).
+La API queda en `http://127.0.0.1:8000`. Solo lee la base de datos, así que no necesita la clave de Riot. La documentación interactiva está en `http://127.0.0.1:8000/docs`.
+
+| Endpoint | Descripción |
+|---|---|
+| `GET /` | Información general y lista de endpoints |
+| `GET /estadisticas` | Resumen por tipo de partida: total, victorias, winrate y KDA promedio |
+| `GET /campeones/{queue_id}` | Detalle por campeón dentro de un tipo de partida (por ejemplo `420` = clasificatoria solo/duo) |
+| `GET /partidas?limit=10` | Últimas partidas guardadas (entre 1 y 100) |
+
+Ejemplo de respuesta de `/estadisticas`:
+
+```json
+[
+  {
+    "queue_id": 420,
+    "cola": "Clasificatoria solo/duo",
+    "partidas": 17,
+    "victorias": 7,
+    "winrate": 41.2,
+    "kills_prom": 6.2,
+    "muertes_prom": 6.2,
+    "asistencias_prom": 8.6
+  }
+]
+```
 
 ## Estructura
 
 ```
 lol-match-analyzer/
-├── main.py        # script principal
-├── partidas.db    # base de datos local (se crea sola, no se sube a Git)
-├── .env           # tu clave de la API (no se sube a Git)
+├── main.py            # descarga partidas desde Riot y las guarda
+├── database.py        # base de datos SQLite y consultas de estadísticas
+├── api.py             # API REST con FastAPI
+├── requirements.txt   # dependencias
+├── partidas.db        # base de datos local (se crea sola, no se sube a Git)
+├── .env               # tu clave de la API (no se sube a Git)
 ├── .gitignore
 └── README.md
 ```
 
+## Decisiones de diseño
+
+- **Sin duplicados:** el `match_id` es la clave primaria y antes de pedir una partida se comprueba si ya está guardada, lo que ahorra peticiones.
+- **Límites de la API:** la clave de desarrollo permite 20 solicitudes por segundo y 100 cada 2 minutos, por eso hay una pausa entre peticiones.
+- **Separación de responsabilidades:** la lógica de datos vive en `database.py` y la comparten el script de descarga y la API.
+- **Una conexión por petición** en la API, porque SQLite no comparte conexiones entre hilos.
+
 ## Próximos pasos
 
-- [ ] Separar las estadísticas por modo de juego (ARAM, clasificatoria, normal).
+- [ ] Pruebas automáticas con pytest.
 - [ ] Más métricas: daño, oro, visión y farmeo por minuto.
-- [ ] Exponer las estadísticas con una API propia (FastAPI).
-- [ ] Migrar a PostgreSQL y desplegar con Docker.
-- [ ] Pruebas automáticas.
+- [ ] Empaquetar con Docker y desplegar en la nube.
+- [ ] Migrar de SQLite a PostgreSQL.
 
 ## Aviso legal
 
