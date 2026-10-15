@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analizador de partidas</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --panel: #0d1424;
+    --panel-2: #121b32;
+    --line: #232c47;
+    --gold: #d4b06a;
+    --gold-dim: #8a7343;
+    --blue: #3fa7d6;
+    --violet: #8b6fe0;
+    --win: #3ec7a1;
+    --loss: #e0566a;
+    --text: #e8e6df;
+    --muted: #8b93a8;
+    --serif: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(900px 420px at 82% -6%, rgba(86, 60, 160, .30), transparent 60%),
+      radial-gradient(760px 420px at -4% 0%, rgba(40, 100, 160, .24), transparent 60%);
+    background-repeat: no-repeat;
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.4;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- Banner ---------- */
+  .hero { padding: 34px 0 22px; }
+  .hero .wrap { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .badge {
+    width: 92px; height: 92px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: radial-gradient(circle at 35% 30%, #1d3a66, #0a1224 70%);
+    border: 3px solid var(--gold);
+    box-shadow: 0 0 0 4px rgba(212, 176, 106, .15), 0 0 28px rgba(63, 167, 214, .25);
+    font-family: var(--serif); font-size: 22px; letter-spacing: .08em; color: var(--gold);
+  }
+  .hero h1 {
+    font-family: var(--serif); font-weight: 600; font-size: 34px;
+    letter-spacing: .04em; color: #f3ecd9;
+  }
+  .hero .sub { color: var(--muted); margin-top: 2px; }
+  .hero .tag { color: var(--gold); font-style: italic; margin-top: 6px; font-family: var(--serif); }
+  .hero .total { margin-left: auto; text-align: right; }
+  .hero .total b { display: block; font-family: var(--serif); font-size: 30px; color: var(--gold); }
+  .hero .total span { color: var(--muted); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; }
+
+  /* ---------- Pestañas ---------- */
+  #tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+  .tab {
+    background: none; border: 0; color: var(--muted); cursor: pointer;
+    padding: 12px 18px; font-family: var(--serif); font-size: 15px;
+    letter-spacing: .08em; text-transform: uppercase;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .tab small { color: var(--muted); font-family: 'Segoe UI', sans-serif; letter-spacing: 0; margin-left: 4px; }
+
+  /* ---------- Paneles ---------- */
+  .layout { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; padding-bottom: 30px; }
+  .col { display: flex; flex-direction: column; gap: 20px; }
+  .wide { grid-column: 1 / -1; }
+  .panel {
+    position: relative; background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line); border-radius: 6px; padding: 20px 22px 22px;
+  }
+  .panel::before, .panel::after {
+    content: ''; position: absolute; width: 16px; height: 16px; border: 2px solid var(--gold-dim);
+  }
+  .panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .panel h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 16px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 16px;
+  }
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 14px; }
+
+  /* ---------- Resumen ---------- */
+  .stats3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+  .stat { text-align: center; padding: 10px 4px; border: 1px solid var(--line); border-radius: 4px; background: rgba(255,255,255,.02); }
+  .stat .lbl { color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .stat .val { font-family: var(--serif); font-size: 30px; margin-top: 2px; }
+  .stat.win .val { color: var(--win); }
+  .stat.loss .val { color: var(--loss); }
+  .resumen-row { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+  .ring { position: relative; width: 132px; height: 132px; flex: none; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .txt { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .ring .txt b { font-family: var(--serif); font-size: 26px; }
+  .ring .txt span { color: var(--muted); font-size: 11px; letter-spacing: .14em; }
+  .kda-big .lbl { color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .kda-big .nums { font-family: var(--serif); font-size: 32px; margin: 2px 0; }
+  .kda-big .sub { color: var(--gold); font-size: 14px; }
+
+  /* ---------- Tarjetas por cola ---------- */
+  .colas { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .cola-card {
+    text-align: left; cursor: pointer; color: inherit; font: inherit;
+    background: linear-gradient(160deg, rgba(63,167,214,.10), rgba(139,111,224,.08));
+    border: 1px solid var(--line); border-radius: 6px; padding: 16px;
+    display: flex; gap: 14px; align-items: center;
+  }
+  .cola-card:hover, .cola-card.active { border-color: var(--gold-dim); }
+  .cola-card .ring { width: 86px; height: 86px; }
+  .cola-card .ring .txt b { font-size: 17px; }
+  .cola-card .ring .txt span { font-size: 9px; }
+  .cola-card h3 { font-family: var(--serif); font-size: 14px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
+  .cola-card p { color: var(--muted); font-size: 13px; }
+  .cola-card .wl { margin-top: 6px; font-size: 13px; }
+  .wl .w { color: var(--win); } .wl .l { color: var(--loss); }
+
+  /* ---------- Últimas partidas ---------- */
+  .match {
+    display: grid; grid-template-columns: 82px 42px 1fr auto; gap: 12px; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  .match:last-child { border-bottom: 0; }
+  .chip {
+    text-align: center; font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 4px 6px; border-radius: 3px; border: 1px solid;
+  }
+  .chip.win { color: var(--win); border-color: rgba(62,199,161,.45); background: rgba(62,199,161,.10); }
+  .chip.loss { color: var(--loss); border-color: rgba(224,86,106,.45); background: rgba(224,86,106,.10); }
+  .chip.remake { color: var(--muted); border-color: var(--line); background: rgba(255,255,255,.03); }
+  .avatar {
+    width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+    font-family: var(--serif); font-size: 15px; color: #fff; border: 2px solid var(--gold-dim);
+    flex: none;
+  }
+  .match .who b { display: block; font-size: 15px; }
+  .match .who span { color: var(--muted); font-size: 12.5px; }
+  .match .nums { text-align: right; }
+  .match .nums b { font-family: var(--serif); font-size: 17px; }
+  .match .nums span { display: block; color: var(--muted); font-size: 12px; }
+
+  /* ---------- Detalle de KDA ---------- */
+  .kda-bars { display: flex; align-items: flex-end; justify-content: center; gap: 34px; height: 150px; }
+  .kda-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px; }
+  .kda-col .bar { width: 46px; border-radius: 3px 3px 0 0; min-height: 4px; }
+  .kda-col .v { font-family: var(--serif); font-size: 18px; }
+  .kda-col .k { color: var(--muted); font-size: 12px; letter-spacing: .1em; }
+
+  /* ---------- Campeones ---------- */
+  .champ {
+    display: grid; grid-template-columns: 42px 130px 1fr 130px; gap: 14px; align-items: center;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+  }
+  .champ:last-child { border-bottom: 0; }
+  .champ.low { opacity: .55; }
+  .champ .name b { display: block; }
+  .champ .name span { color: var(--muted); font-size: 12.5px; }
+  .track { height: 14px; background: #0a0f1d; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .fill { height: 100%; }
+  .champ .res { text-align: right; font-size: 13.5px; }
+  .champ .res b { font-family: var(--serif); font-size: 16px; display: block; }
+
+  .msg { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 60px 0; font-size: 16px; }
+  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; padding: 18px 0 30px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .hero .total { margin-left: 0; text-align: left; }
+    .champ { grid-template-columns: 42px 1fr; }
+    .champ .track-wrap, .champ .res { grid-column: 1 / -1; text-align: left; }
+    .match { grid-template-columns: 78px 42px 1fr; }
+    .match .nums { grid-column: 1 / -1; text-align: left; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="badge">LMA</div>
+    <div>
+      <h1>Analizador de partidas</h1>
+      <div class="sub">lol-match-analyzer · datos de la API oficial de Riot Games</div>
+      <div class="tag">Tus partidas, convertidas en datos.</div>
+    </div>
+    <div class="total"><b id="total">–</b><span>partidas analizadas</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav id="tabs" role="tablist" aria-label="Tipo de partida"></nav>
+
+  <main class="layout">
+    <div class="col">
+      <section class="panel"><h2>Resumen general</h2><div id="resumen"></div></section>
+      <section class="panel"><h2>Por tipo de partida</h2><div id="colas" class="colas"></div></section>
+    </div>
+    <div class="col">
+      <section class="panel"><h2>Últimas partidas</h2><div id="partidas"></div></section>
+      <section class="panel"><h2>Detalle de KDA</h2><div id="kda"></div></section>
+    </div>
+    <section class="panel wide"><h2>Rendimiento por campeón</h2><div id="campeones"></div></section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    Este proyecto no está respaldado por Riot Games ni refleja las opiniones de Riot Games ni de nadie oficialmente
+    involucrado en producir o gestionar League of Legends. League of Legends y Riot Games son marcas registradas de Riot Games, Inc.
+  </div>
+</footer>
+
+<script>
+  const MIN_MUESTRA = 3; // con menos partidas, el winrate de un campeón no es confiable
+  const state = { stats: [], campeones: {}, partidas: [], tab: 'todas' };
+
+  const $ = (id) => document.getElementById(id);
+  const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+  const f1 = (n) => Number(n).toFixed(1);
+
+  // Crea elementos del DOM. Los textos se insertan como texto (nunca como HTML).
+  function el(tag, props = {}, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') e.className = v;
+      else if (k === 'style') e.style.cssText = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined) e.append(kid);
+    return e;
+  }
+
+  async function get(path) {
+    const r = await fetch(path);
+    if (!r.ok) throw new Error(`${path} respondió ${r.status}`);
+    return r.json();
+  }
+
+  // ---------- Cálculos ----------
+  function agregar(sel) {
+    const n = sum(sel.map((s) => s.partidas));
+    const v = sum(sel.map((s) => s.victorias));
+    const prom = (key) => (n ? sum(sel.map((s) => s[key] * s.partidas)) / n : 0);
+    return {
+      partidas: n, victorias: v, derrotas: n - v,
+      winrate: n ? (100 * v) / n : 0,
+      k: prom('kills_prom'), d: prom('muertes_prom'), a: prom('asistencias_prom'),
+    };
+  }
+
+  function campeonesDe(sel) {
+    const m = new Map();
+    for (const s of sel) {
+      for (const c of state.campeones[s.queue_id] || []) {
+        const x = m.get(c.campeon) || { campeon: c.campeon, partidas: 0, victorias: 0, k: 0, d: 0, a: 0 };
+        x.partidas += c.partidas;
+        x.victorias += c.victorias;
+        x.k += c.kills_prom * c.partidas;
+        x.d += c.muertes_prom * c.partidas;
+        x.a += c.asistencias_prom * c.partidas;
+        m.set(c.campeon, x);
+      }
+    }
+    return [...m.values()]
+      .map((x) => ({ ...x, winrate: (100 * x.victorias) / x.partidas, k: x.k / x.partidas, d: x.d / x.partidas, a: x.a / x.partidas }))
+      .sort((a, b) => b.partidas - a.partidas || b.winrate - a.winrate);
+  }
+
+  // ---------- Piezas visuales ----------
+  function avatar(nombre) {
+    let hue = 0;
+    for (const ch of nombre) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+    return el('div', {
+      class: 'avatar',
+      style: `background: linear-gradient(135deg, hsl(${hue} 55% 38%), hsl(${(hue + 45) % 360} 55% 20%))`,
+    }, nombre.slice(0, 2).toUpperCase());
+  }
+
+  function ring(pct, label = 'WINRATE') {
+    const ns = 'http://www.w3.org/2000/svg';
+    const r = 52, c = 2 * Math.PI * r;
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    const circle = (stroke, extra = {}) => {
+      const e = document.createElementNS(ns, 'circle');
+      e.setAttribute('cx', 60); e.setAttribute('cy', 60); e.setAttribute('r', r);
+      e.setAttribute('fill', 'none'); e.setAttribute('stroke-width', 9);
+      e.setAttribute('stroke', stroke);
+      for (const [k, v] of Object.entries(extra)) e.setAttribute(k, v);
+      return e;
+    };
+    svg.append(
+      circle('#1a2340'),
+      circle(pct >= 50 ? '#3ec7a1' : '#d9a441', {
+        'stroke-linecap': 'round',
+        'stroke-dasharray': c,
+        'stroke-dashoffset': c * (1 - Math.min(pct, 100) / 100),
+      })
+    );
+    return el('div', { class: 'ring' }, svg, el('div', { class: 'txt' }, el('b', {}, `${f1(pct)}%`), el('span', {}, label)));
+  }
+
+  const stat = (lbl, val, cls = '') => el('div', { class: `stat ${cls}` }, el('div', { class: 'lbl' }, lbl), el('div', { class: 'val' }, String(val)));
+  const ratio = (ag) => (ag.d > 0 ? ((ag.k + ag.a) / ag.d).toFixed(2) : '—');
+
+  // ---------- Render ----------
+  function renderTabs() {
+    const tabs = [{ key: 'todas', label: 'Todas', n: sum(state.stats.map((s) => s.partidas)) }]
+      .concat(state.stats.map((s) => ({ key: String(s.queue_id), label: s.cola, n: s.partidas })));
+    $('tabs').replaceChildren(...tabs.map((t) =>
+      el('button', {
+        class: 'tab' + (state.tab === t.key ? ' active' : ''),
+        role: 'tab',
+        'aria-selected': String(state.tab === t.key),
+        onclick: () => { state.tab = t.key; render(); },
+      }, t.label, el('small', {}, `(${t.n})`))
+    ));
+  }
+
+  function renderResumen(ag) {
+    $('resumen').replaceChildren(
+      el('div', { class: 'stats3' }, stat('Partidas', ag.partidas), stat('Victorias', ag.victorias, 'win'), stat('Derrotas', ag.derrotas, 'loss')),
+      el('div', { class: 'resumen-row' },
+        ring(ag.winrate),
+        el('div', { class: 'kda-big' },
+          el('div', { class: 'lbl' }, 'KDA promedio'),
+          el('div', { class: 'nums' }, `${f1(ag.k)} / ${f1(ag.d)} / ${f1(ag.a)}`),
+          el('div', { class: 'sub' }, `Ratio ${ratio(ag)}`))),
+      el('p', { class: 'note' }, 'Las partidas de menos de 5 minutos (remakes) no cuentan en las estadísticas.')
+    );
+  }
+
+  function renderColas() {
+    $('colas').replaceChildren(...state.stats.map((s) =>
+      el('button', {
+        class: 'cola-card' + (state.tab === String(s.queue_id) ? ' active' : ''),
+        onclick: () => { state.tab = String(s.queue_id); render(); },
+      },
+        ring(s.winrate),
+        el('div', {},
+          el('h3', {}, s.cola),
+          el('p', {}, `${s.partidas} partidas`),
+          el('div', { class: 'wl' }, el('span', { class: 'w' }, `${s.victorias} victorias`), ' · ', el('span', { class: 'l' }, `${s.partidas - s.victorias} derrotas`))))
+    ));
+  }
+
+  function renderPartidas(sel) {
+    const colas = new Set(sel.map((s) => s.cola));
+    const lista = state.partidas.filter((p) => colas.has(p.cola)).slice(0, 8);
+    if (!lista.length) { $('partidas').replaceChildren(el('p', { class: 'note' }, 'Sin partidas para mostrar.')); return; }
+    $('partidas').replaceChildren(...lista.map((p) => {
+      const remake = p.duracion_min < 5;
+      const fecha = new Date(p.fecha).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      return el('div', { class: 'match' },
+        el('div', { class: 'chip ' + (remake ? 'remake' : p.resultado === 'Victoria' ? 'win' : 'loss') }, remake ? 'Remake' : p.resultado),
+        avatar(p.campeon),
+        el('div', { class: 'who' }, el('b', {}, p.campeon), el('span', {}, `${p.cola} · ${Math.round(p.duracion_min)} min`)),
+        el('div', { class: 'nums' }, el('b', {}, p.kda.replaceAll('/', ' / ')), el('span', {}, fecha)));
+    }));
+  }
+
+  function renderKda(ag) {
+    const max = Math.max(ag.k, ag.d, ag.a, 1);
+    const col = (k, v, color) => el('div', { class: 'kda-col' },
+      el('div', { class: 'v' }, f1(v)),
+      el('div', { class: 'bar', style: `height:${Math.max((v / max) * 100, 3)}%; background:${color}` }),
+      el('div', { class: 'k' }, k));
+    $('kda').replaceChildren(el('div', { class: 'kda-bars' },
+      col('KILLS', ag.k, 'var(--blue)'), col('MUERTES', ag.d, 'var(--violet)'), col('ASISTENCIAS', ag.a, 'var(--gold)')));
+  }
+
+  function renderCampeones(sel) {
+    const lista = campeonesDe(sel).slice(0, 12);
+    if (!lista.length) { $('campeones').replaceChildren(el('p', { class: 'note' }, 'Sin datos de campeones.')); return; }
+    $('campeones').replaceChildren(
+      ...lista.map((c) => el('div', { class: 'champ' + (c.partidas < MIN_MUESTRA ? ' low' : '') },
+        avatar(c.campeon),
+        el('div', { class: 'name' }, el('b', {}, c.campeon), el('span', {}, `${c.partidas} ${c.partidas === 1 ? 'partida' : 'partidas'}`)),
+        el('div', { class: 'track-wrap' }, el('div', { class: 'track' },
+          el('div', { class: 'fill', style: `width:${c.winrate}%; background:${c.winrate >= 50 ? 'var(--win)' : 'var(--loss)'}` }))),
+        el('div', { class: 'res' }, el('b', {}, `${f1(c.winrate)}%`), `${f1(c.k)} / ${f1(c.d)} / ${f1(c.a)}`))),
+      el('p', { class: 'note' }, `Los campeones con menos de ${MIN_MUESTRA} partidas aparecen atenuados: con tan pocos datos el winrate no es confiable.`)
+    );
+  }
+
+  function render() {
+    const sel = state.tab === 'todas' ? state.stats : state.stats.filter((s) => String(s.queue_id) === state.tab);
+    const ag = agregar(sel);
+    renderTabs();
+    renderResumen(ag);
+    renderColas();
+    renderPartidas(sel);
+    renderKda(ag);
+    renderCampeones(sel);
+  }
+
+  function mensaje(texto) {
+    document.querySelector('.layout').replaceChildren(el('div', { class: 'msg' }, texto));
+  }
+
+  async function init() {
+    try {
+      state.stats = await get('/estadisticas');
+      if (!state.stats.length) {
+        $('total').textContent = '0';
+        mensaje('Todavía no hay partidas guardadas. Ejecuta main.py para descargarlas.');
+        return;
+      }
+      const [partidas, ...camps] = await Promise.all([
+        get('/partidas?limit=100'),
+        ...state.stats.map((s) => get(`/campeones/${s.queue_id}`)),
+      ]);
+      state.partidas = partidas;
+      camps.forEach((c, i) => { state.campeones[state.stats[i].queue_id] = c.campeones; });
+      $('total').textContent = sum(state.stats.map((s) => s.partidas));
+      render();
+    } catch (e) {
+      mensaje('No se pudieron cargar los datos. ¿Está corriendo la API y la base de datos? (' + e.message + ')');
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

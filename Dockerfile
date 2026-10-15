@@ -6,8 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Solo el código que necesita la API
-COPY database.py api.py ./
+# El código que necesita la API (incluye la página del dashboard)
+COPY database.py api.py dashboard.html ./
 
 EXPOSE 8000
 

@@ -1,7 +1,9 @@
-"""API propia que expone en JSON las estadísticas guardadas en la base de datos."""
+"""API propia que expone en JSON las estadísticas guardadas en la base de datos y sirve el dashboard."""
 from contextlib import contextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from database import (
     campeones_de_cola,
@@ -11,16 +13,18 @@ from database import (
     ultimas_partidas,
 )
 
+DASHBOARD_PATH = Path(__file__).parent / "dashboard.html"
+
 app = FastAPI(
     title="LoL Match Analyzer",
     description="Estadísticas de partidas de League of Legends guardadas desde la API de Riot.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 
 @contextmanager
 def db():
-    """Abre una conexión por petición (SQLite no comparte conexiones entre hilos)."""
+    """Abre una conexión por petición."""
     conn = init_db()
     try:
         yield conn
@@ -32,9 +36,16 @@ def db():
 def raiz():
     return {
         "proyecto": "lol-match-analyzer",
+        "dashboard": "/dashboard",
         "documentacion": "/docs",
         "endpoints": ["/estadisticas", "/campeones/{queue_id}", "/partidas"],
     }
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard():
+    """Página web que consume los demás endpoints y los muestra con gráficos."""
+    return FileResponse(DASHBOARD_PATH)
 
 
 @app.get("/estadisticas")
