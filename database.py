@@ -1,7 +1,13 @@
-"""Acceso a la base de datos SQLite: creación de la tabla, guardado y consultas de estadísticas."""
-import sqlite3
+"""Acceso a la base de datos PostgreSQL: creación de la tabla, guardado y consultas de estadísticas."""
+import os
 
-DB_PATH = "partidas.db"
+import psycopg
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# En local apunta al PostgreSQL de docker-compose; en la nube se define con la variable DATABASE_URL.
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://lol:lol@localhost:5432/lol")
 MIN_DURACION = 5  # minutos; las partidas más cortas (remakes) no cuentan en las estadísticas
 
 # Nombres legibles para las colas (queueId) más comunes. Las demás salen como "Cola <id>".
@@ -23,8 +29,13 @@ def nombre_cola(queue_id):
     return COLAS.get(queue_id, f"Cola {queue_id}")
 
 
+def _num(valor):
+    """PostgreSQL devuelve Decimal en promedios y porcentajes; los pasamos a float."""
+    return float(valor) if valor is not None else None
+
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = psycopg.connect(DATABASE_URL)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS partidas (
@@ -34,27 +45,29 @@ def init_db():
             deaths INTEGER,
             assists INTEGER,
             win INTEGER,
-            duracion_min REAL,
+            duracion_min DOUBLE PRECISION,
             modo TEXT,
             queue_id INTEGER,
             fecha TEXT
         )
         """
     )
+    conn.commit()
     return conn
 
 
 def match_exists(conn, match_id):
-    row = conn.execute("SELECT 1 FROM partidas WHERE match_id = ?", (match_id,)).fetchone()
+    row = conn.execute("SELECT 1 FROM partidas WHERE match_id = %s", (match_id,)).fetchone()
     return row is not None
 
 
 def save_match(conn, match_id, r):
     conn.execute(
         """
-        INSERT OR IGNORE INTO partidas
+        INSERT INTO partidas
             (match_id, campeon, kills, deaths, assists, win, duracion_min, modo, queue_id, fecha)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (match_id) DO NOTHING
         """,
         (match_id, r["campeon"], r["kills"], r["deaths"], r["assists"],
          r["win"], r["duracion_min"], r["modo"], r["queue_id"], r["fecha"]),
@@ -72,7 +85,7 @@ def resumen_por_cola(conn):
                ROUND(100.0 * SUM(win) / COUNT(*), 1),
                ROUND(AVG(kills), 1), ROUND(AVG(deaths), 1), ROUND(AVG(assists), 1)
         FROM partidas
-        WHERE duracion_min >= ?
+        WHERE duracion_min >= %s
         GROUP BY queue_id
         ORDER BY COUNT(*) DESC
         """,
@@ -83,11 +96,11 @@ def resumen_por_cola(conn):
             "queue_id": q,
             "cola": nombre_cola(q),
             "partidas": n,
-            "victorias": v,
-            "winrate": wr,
-            "kills_prom": k,
-            "muertes_prom": d,
-            "asistencias_prom": a,
+            "victorias": int(v),
+            "winrate": _num(wr),
+            "kills_prom": _num(k),
+            "muertes_prom": _num(d),
+            "asistencias_prom": _num(a),
         }
         for q, n, v, wr, k, d, a in rows
     ]
@@ -102,7 +115,7 @@ def campeones_de_cola(conn, queue_id):
                ROUND(100.0 * SUM(win) / COUNT(*), 1),
                ROUND(AVG(kills), 1), ROUND(AVG(deaths), 1), ROUND(AVG(assists), 1)
         FROM partidas
-        WHERE queue_id = ? AND duracion_min >= ?
+        WHERE queue_id = %s AND duracion_min >= %s
         GROUP BY campeon
         ORDER BY COUNT(*) DESC, 4 DESC
         """,
@@ -112,11 +125,11 @@ def campeones_de_cola(conn, queue_id):
         {
             "campeon": c,
             "partidas": n,
-            "victorias": v,
-            "winrate": wr,
-            "kills_prom": k,
-            "muertes_prom": d,
-            "asistencias_prom": a,
+            "victorias": int(v),
+            "winrate": _num(wr),
+            "kills_prom": _num(k),
+            "muertes_prom": _num(d),
+            "asistencias_prom": _num(a),
         }
         for c, n, v, wr, k, d, a in rows
     ]
@@ -128,7 +141,7 @@ def ultimas_partidas(conn, limit=10):
         SELECT match_id, campeon, kills, deaths, assists, win, duracion_min, queue_id, fecha
         FROM partidas
         ORDER BY fecha DESC
-        LIMIT ?
+        LIMIT %s
         """,
         (limit,),
     ).fetchall()

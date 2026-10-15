@@ -1,4 +1,11 @@
-"""Pruebas de database.py. Usan una base de datos en memoria: no tocan partidas.db ni la API de Riot."""
+"""Pruebas de database.py.
+
+Necesitan PostgreSQL corriendo (docker compose up -d db). Cada prueba usa un esquema temporal
+que se borra al terminar, así que nunca tocan tus datos reales ni la API de Riot.
+"""
+import uuid
+
+import psycopg
 import pytest
 
 import database
@@ -6,10 +13,20 @@ import database
 
 @pytest.fixture
 def conn(monkeypatch):
-    monkeypatch.setattr(database, "DB_PATH", ":memory:")
-    c = database.init_db()
-    yield c
-    c.close()
+    schema = f"test_{uuid.uuid4().hex[:8]}"
+    base_url = database.DATABASE_URL
+    with psycopg.connect(base_url, autocommit=True) as admin:
+        admin.execute(f"CREATE SCHEMA {schema}")
+        # Todas las tablas de esta prueba se crean dentro del esquema temporal
+        monkeypatch.setattr(
+            database, "DATABASE_URL", f"{base_url}?options=-c%20search_path%3D{schema}"
+        )
+        c = database.init_db()
+        try:
+            yield c
+        finally:
+            c.close()
+            admin.execute(f"DROP SCHEMA {schema} CASCADE")
 
 
 def partida(**cambios):
